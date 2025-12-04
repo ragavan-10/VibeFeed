@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useWallet } from '../hooks/WalletContext';
 import { useSelector, useDispatch } from 'react-redux';
 import { Coins, Lock, Unlock, Gift, ArrowRightLeft, TrendingUp, Clock, AlertCircle, Loader2, Check } from 'lucide-react';
 import { setTokenData } from '../store/tokenSlice';
 import { formatTokenAmount, formatDuration, formatNumber } from '../utils/format';
 import StatCard from '../components/StatCard';
-import { DEMO_MODE } from '../utils/mockData';
+// import { DEMO_MODE } from '../utils/mockData';
 
 const MIN_STAKE = 1000;
 
@@ -13,6 +14,10 @@ const TokenDashboard = () => {
   const { balance, stakedAmount, pendingRewards, unlockTime, votingPower, isStakedEnough } = useSelector(
     (state) => state.token
   );
+  const { address } = useSelector((state) => state.user);
+  const { contract, signerContract } = useWallet();
+
+  const [isOwner, setIsOwner] = useState(false);
 
   const [activeTab, setActiveTab] = useState('stake');
   const [stakeAmount, setStakeAmount] = useState('');
@@ -39,42 +44,63 @@ const TokenDashboard = () => {
   }, [unlockTime]);
 
   const handleStake = async (e) => {
+    console.log(contract);
+    
+    if (!signerContract) {
+      setError('Wallet not connected or contract not ready');
+      return;
+    }
+    console.log("staking: ", stakeAmount);
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    const amount = parseFloat(stakeAmount);
-    if (isNaN(amount) || amount <= 0) {
+    let amount;
+    try {
+      // Convert human-readable input to wei
+      amount = BigInt(Math.floor(parseFloat(stakeAmount) * 1e18));
+    } catch {
       setError('Please enter a valid amount');
       return;
     }
-
-    if (amount > parseFloat(balance)) {
+    if (amount <= 0n) {
+      setError('Please enter a valid amount');
+      return;
+    }
+    // Convert Redux balance to wei for comparison
+    const balanceWei = BigInt(Math.floor(parseFloat(balance) * 1e18));
+    if (amount > balanceWei) {
       setError('Insufficient balance');
       return;
     }
-
     setIsStaking(true);
-    
-    if (DEMO_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      console.log("here");
       
+      const tx = await signerContract.stake(amount);
+      await tx.wait();
+      
+      setSuccess(`Successfully staked ${stakeAmount} tokens!`);
+      // Convert from wei to human-readable for arithmetic
+      const amountEther = Number(amount) / 1e18;
+      // Update Redux state with human-readable strings
       dispatch(setTokenData({
-        balance: (parseFloat(balance) - amount).toString(),
-        stakedAmount: (parseFloat(stakedAmount) + amount).toString(),
-        unlockTime: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
+        balance: (parseFloat(balance) - amountEther).toString(),
+        stakedAmount: (parseFloat(stakedAmount) + amountEther).toString(),
+        unlockTime: (Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7).toString(),
       }));
-      
-      setSuccess(`Successfully staked ${formatTokenAmount(amount)} tokens!`);
-    } else {
-      // Real contract stake would go here
+    } catch (err) {
+      setError(err.reason || err.message || 'Stake failed');
     }
-    
     setStakeAmount('');
     setIsStaking(false);
   };
 
   const handleUnstake = async (e) => {
+    if (!signerContract) {
+      setError('Wallet not connected or contract not ready');
+      return;
+    }
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -84,7 +110,7 @@ const TokenDashboard = () => {
       return;
     }
 
-    const amount = parseFloat(unstakeAmount);
+  const amount = parseFloat(unstakeAmount);
     if (isNaN(amount) || amount <= 0) {
       setError('Please enter a valid amount');
       return;
@@ -96,25 +122,28 @@ const TokenDashboard = () => {
     }
 
     setIsUnstaking(true);
-    
-    if (DEMO_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
+    try {
+      const tx = await signerContract.unstake();
+      await tx.wait();
+      setSuccess('Successfully unstaked tokens!');
+      // Update Redux state directly (unstake all)
       dispatch(setTokenData({
-        balance: (parseFloat(balance) + amount).toString(),
-        stakedAmount: (parseFloat(stakedAmount) - amount).toString(),
+        balance: (BigInt(balance) + BigInt(stakedAmount)).toString(),
+        stakedAmount: '0',
+        unlockTime: '0',
       }));
-      
-      setSuccess(`Successfully unstaked ${formatTokenAmount(amount)} tokens!`);
-    } else {
-      // Real contract unstake would go here
+    } catch (err) {
+      setError(err.reason || err.message || 'Unstake failed');
     }
-    
     setUnstakeAmount('');
     setIsUnstaking(false);
   };
 
   const handleClaim = async () => {
+    if (!signerContract) {
+      setError('Wallet not connected or contract not ready');
+      return;
+    }
     setError('');
     setSuccess('');
 
@@ -124,22 +153,36 @@ const TokenDashboard = () => {
     }
 
     setIsClaiming(true);
-    
-    if (DEMO_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
+    try {
+      const tx = await signerContract.claimRewards();
+      await tx.wait();
+      setSuccess('Successfully claimed rewards!');
+      // Update Redux state directly
       dispatch(setTokenData({
-        balance: (parseFloat(balance) + parseFloat(pendingRewards)).toString(),
+        balance: (BigInt(balance) + BigInt(pendingRewards)).toString(),
         pendingRewards: '0',
       }));
-      
-      setSuccess(`Successfully claimed ${formatTokenAmount(pendingRewards)} tokens!`);
-    } else {
-      // Real contract claim would go here
+    } catch (err) {
+      setError(err.reason || err.message || 'Claim failed');
     }
-    
     setIsClaiming(false);
   };
+  // Check if user is contract owner
+  useEffect(() => {
+    const checkOwner = async () => {
+      console.log(contract, address);
+      
+      if (!contract || !address) return;
+      try {
+        const owner = await contract.owner();
+        setIsOwner(owner.toLowerCase() === address.toLowerCase());
+        console.log(owner, address);
+        
+      } catch {}
+    };
+    checkOwner();
+  }, [contract, address]);
+
 
   return (
     <div className="space-y-6">
@@ -154,25 +197,25 @@ const TokenDashboard = () => {
         <StatCard
           icon={Coins}
           label="Total Balance"
-          value={formatTokenAmount(balance)}
+          value={balance}
           suffix=" VIBE"
         />
         <StatCard
           icon={Lock}
           label="Staked Amount"
-          value={formatTokenAmount(stakedAmount)}
+          value={stakedAmount}
           suffix=" VIBE"
         />
         <StatCard
           icon={Gift}
           label="Pending Rewards"
-          value={formatTokenAmount(pendingRewards)}
+          value={pendingRewards}
           suffix=" VIBE"
         />
         <StatCard
           icon={TrendingUp}
           label="Voting Power"
-          value={formatNumber(votingPower)}
+          value={votingPower}
         />
       </div>
 
@@ -269,7 +312,7 @@ const TokenDashboard = () => {
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Available: {formatTokenAmount(balance)} VIBE
+                  Available: {balance} VIBE
                 </p>
               </div>
 
@@ -285,7 +328,7 @@ const TokenDashboard = () => {
                 <p className="flex justify-between">
                   <span className="text-muted-foreground">Your voting power</span>
                   <span className="text-primary">
-                    {Math.floor((parseFloat(stakedAmount) + parseFloat(stakeAmount || 0)) / 100)}
+                    {stakedAmount}
                   </span>
                 </p>
               </div>
@@ -336,7 +379,7 @@ const TokenDashboard = () => {
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Staked: {formatTokenAmount(stakedAmount)} VIBE
+                  Staked: {stakedAmount} VIBE
                 </p>
               </div>
 
@@ -374,7 +417,7 @@ const TokenDashboard = () => {
             <div className="space-y-4">
               <div className="text-center py-6">
                 <p className="text-4xl font-display font-bold gradient-text mb-2">
-                  {formatTokenAmount(pendingRewards)} VIBE
+                  {pendingRewards} VIBE
                 </p>
                 <p className="text-muted-foreground">Available to claim</p>
               </div>
@@ -410,6 +453,30 @@ const TokenDashboard = () => {
           )}
         </div>
       </div>
+
+            {/* Distribute Rewards (owner only) */}
+      {isOwner && (
+        <div className="glass-card p-4 flex flex-col items-center">
+          <button
+            className="btn-primary mb-2"
+            onClick={async () => {
+              setError('');
+              setSuccess('');
+              try {
+                const tx = await signerContract.distributeWeeklyRewards();
+                await tx.wait();
+                setSuccess('Rewards distributed!');
+                // Optional: refetch token data here via contract
+              } catch (err) {
+                setError(err.reason || err.message || 'Distribute failed');
+              }
+            }}
+          >
+            Distribute Weekly Rewards
+          </button>
+          <p className="text-xs text-muted-foreground">Only contract owner can distribute rewards</p>
+        </div>
+      )}
 
       {/* Swap Widget */}
       <div className="glass-card p-6">

@@ -7,7 +7,7 @@ import { addMyLikedPostId } from '../store/userSlice';
 import { formatTimeAgo, formatNumber, shortenAddress, formatDateTime } from '../utils/format';
 import { getIPFSUrl } from '../utils/ipfs';
 import { LoadingScreen } from '../components/LoadingSpinner';
-import { DEMO_MODE } from '../utils/mockData';
+import { useWallet } from '../hooks/WalletContext.jsx';
 
 const PostDetail = () => {
   const { id } = useParams();
@@ -18,6 +18,7 @@ const PostDetail = () => {
   const { isStakedEnough } = useSelector((state) => state.token);
 
   const post = byId[parseInt(id)];
+  const { signerContract, contract } = useWallet();
   const [isLiking, setIsLiking] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
 
@@ -25,21 +26,20 @@ const PostDetail = () => {
 
   const handleLike = async () => {
     if (!post || isLikedByMe || isLiking || !isStakedEnough) return;
-    
     setIsLiking(true);
-    
-    if (DEMO_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      dispatch(likePostAction({
-        id: post.id,
-        points: post.points + Math.floor(Math.random() * 10) + 1,
-      }));
+    try {
+      if (!signerContract) throw new Error('Connect wallet first');
+      const tx = await signerContract.like(post.id);
+      await tx.wait();
+      // Refresh points from chain via read-only contract
+      const [,, , points] = await contract.getPost(post.id);
+      const formattedPoints = Number(points) / 1e18;
+      dispatch(likePostAction({ id: post.id, points: formattedPoints }));
       dispatch(addMyLikedPostId(post.id));
-    } else {
-      // Real contract like would go here
+    } catch (e) {
+      // optional: surface error to UI
+      console.error('Like error:', e);
     }
-    
     setIsLiking(false);
   };
 

@@ -1,157 +1,158 @@
 import { useState, useCallback, useEffect } from 'react';
-import { BrowserProvider, Contract, formatEther, parseEther } from 'ethers';
+import { BrowserProvider, Contract, formatEther, formatUnits } from 'ethers';
 import { useDispatch, useSelector } from 'react-redux';
 import { setUserData, setIsConnecting, setError as setUserError, resetUser } from '../store/userSlice';
 import { setTokenData, resetToken } from '../store/tokenSlice';
-import { setPosts, addNewPost, likePost, setTrendingIds } from '../store/postsSlice';
+import { setPost, setIsLoading } from '../store/postsSlice';
+import { CONTRACT_ABI } from '../contracts/abis';
 import { CONTRACTS, CHAIN_ID, NETWORK_CONFIG } from '../contracts/addresses';
-import { TOKEN_ABI, CONTENT_ABI } from '../contracts/abis';
 
 export const useWeb3 = () => {
   const dispatch = useDispatch();
   const user = useSelector((state) => state.user);
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
-  const [tokenContract, setTokenContract] = useState(null);
-  const [contentContract, setContentContract] = useState(null);
+  const [contract, setContract] = useState(null);
 
   const checkNetwork = useCallback(async () => {
     if (!window.ethereum) return false;
-    
+
     const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-    if (parseInt(chainId, 16) !== CHAIN_ID) {
+    const targetConfig = NETWORK_CONFIG.local;
+    if (chainId !== targetConfig.chainId) {
       try {
         await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: NETWORK_CONFIG.chainId }],
+          method: 'wallet_addEthereumChain',
+          params: [
+            {
+              chainId: targetConfig.chainId,
+              chainName: targetConfig.chainName,
+              rpcUrls: [targetConfig.rpcUrl],
+              nativeCurrency: targetConfig.nativeCurrency,
+            },
+          ],
         });
         return true;
-      } catch (switchError) {
-        if (switchError.code === 4902) {
-          try {
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [NETWORK_CONFIG],
-            });
-            return true;
-          } catch (addError) {
-            console.error('Failed to add network:', addError);
-            return false;
-          }
-        }
+      } catch (error) {
+        console.error('Failed to switch network:', error);
         return false;
       }
     }
     return true;
   }, []);
 
-  const setupContracts = useCallback(async (signerInstance) => {
-    const token = new Contract(CONTRACTS.TOKEN, TOKEN_ABI, signerInstance);
-    const content = new Contract(CONTRACTS.CONTENT, CONTENT_ABI, signerInstance);
-    setTokenContract(token);
-    setContentContract(content);
-    return { token, content };
-  }, []);
-
-  const fetchUserData = useCallback(async (address, content, token) => {
+  // Fetch all posts from contract and populate posts slice
+  const fetchAllPosts = useCallback(async (contractInstance) => {
+    if (!contractInstance) return;
+    dispatch(setIsLoading(true));
     try {
-      // Check if user is registered
-      const isRegistered = await content.isUserRegistered(address);
-      
+      const [postIds, creators, handles, cids, points, createdAts] = await contractInstance.getAllPosts();
+      const posts = postIds.map((id, i) => ({
+        id: Number(id),
+        creator: creators[i],
+        handle: handles[i],
+        cid: cids[i],
+        points: Number(points[i]),
+        createdAt: Number(createdAts[i]),
+      }));
+      // Use setPosts to populate allIds and byId
+      posts.forEach(post => dispatch(setPost(post)));
+    } catch (err) {
+      console.error('Error loading all posts:', err);
+    }
+    dispatch(setIsLoading(false));
+  }, [dispatch]);
+
+  // Fetch all user and token data
+  const fetchUserData = useCallback(async (address, contractInstance) => {
+    try {
+      dispatch(setIsLoading(true));
+      // Registration and handle
+      const handle = await contractInstance.handleOf(address);
+      const isRegistered = handle && handle.length > 0;
+
+      let myPostIds = [];
       if (isRegistered) {
-        const handle = await content.getUserHandle(address);
-        const postIds = await content.getPostsByUser(address);
-        
-        dispatch(setUserData({
-          address,
-          handle,
-          isRegistered: true,
-          myPostIds: postIds.map(id => Number(id)),
-        }));
-      } else {
-        dispatch(setUserData({
-          address,
-          isRegistered: false,
-        }));
+        const postIds = await contractInstance.getMyPostIds(address);
+        myPostIds = postIds.map((id) => Number(id));
       }
 
-      // Fetch token data
-      const balance = await token.balanceOf(address);
-      const stakedAmount = await token.getStakedAmount(address);
-      const pendingRewards = await token.getPendingRewards(address);
-      const unlockTime = await token.getUnlockTime(address);
+      // Fetch liked post IDs (brute force: check all posts)
+      let myLikedPostIds = [];
+      try {
+        const [allPostIds] = await contractInstance.getAllPosts();
+        for (const postId of allPostIds) {
+          const liked = await contractInstance.isPostLikedBy(postId, address);
+          if (liked) myLikedPostIds.push(Number(postId));
+        }
+      } catch (err) {
+        console.error('Error fetching liked posts:', err);
+      }
 
-      dispatch(setTokenData({
-        balance: formatEther(balance),
-        stakedAmount: formatEther(stakedAmount),
-        pendingRewards: formatEther(pendingRewards),
-        unlockTime: Number(unlockTime),
+      // Token data
+      const [balanceRaw, stakeStruct, pendingRewardsRaw, votingPowerRaw] = await Promise.all([
+        contractInstance.balanceOf(address),
+        contractInstance.stakes(address),
+        contractInstance.pendingRewards(address),
+        contractInstance.votingPowerOf(address),
+      ]);
+
+      // Store raw values as strings in Redux (serializable)
+      dispatch(setUserData({
+        address,
+        handle,
+        isRegistered,
+        myPostIds,
+        myLikedPostIds,
       }));
+
+        dispatch(setTokenData({
+          balance: formatUnits(balanceRaw, 18),
+          stakedAmount: formatUnits(stakeStruct.amount, 18),
+          unlockTime: stakeStruct.unlockTime.toString(),
+          pendingRewards: formatUnits(pendingRewardsRaw, 18),
+          votingPower: formatUnits(votingPowerRaw, 18),
+          isStakedEnough: BigInt(stakeStruct.amount) >= 1000n * 1000000000000000000n, // 1000 * 1e18
+        }));
+
+      // Fetch post data for each postId and dispatch to postsSlice
+      for (const postId of myPostIds) {
+        try {
+          const postData = await contractInstance.getPost(postId);
+          // getPost returns [creator, handle, cid, points]
+            const [creator, handle, cid, points, createdAt] = postData;
+            dispatch(setPost({
+              id: Number(postId),
+              creator,
+              handle,
+              cid,
+              points: formatUnits(points, 18),
+              createdAt: createdAt?.toString(),
+            }));
+        } catch (err) {
+          console.error('Error fetching post', postId, err);
+        }
+      }
+      dispatch(setIsLoading(false));
+      // After loading user data, also load all posts for global feed
+      await fetchAllPosts(contractInstance);
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      dispatch(setIsLoading(false));
+      console.error('Error fetching user/token data:', error);
     }
   }, [dispatch]);
 
-  const setupEventListeners = useCallback((content, token) => {
-    // PostCreated event
-    content.on('PostCreated', (postId, creator, cid) => {
-      dispatch(addNewPost({
-        id: Number(postId),
-        creator,
-        cid,
-        points: 0,
-        createdAt: Date.now(),
-        isLikedByMe: false,
-      }));
-    });
+  // Expose refreshUserData and refreshAllPosts for use in other components
+  const refreshUserData = useCallback(async () => {
+    if (!signer || !contract) return;
+    const address = await signer.getAddress();
+    await fetchUserData(address, contract);
+  }, [signer, contract, fetchUserData]);
 
-    // Voted event
-    content.on('Voted', (postId, voter, weight) => {
-      content.getPostLikes(postId).then(likes => {
-        dispatch(likePost({
-          id: Number(postId),
-          points: Number(likes),
-        }));
-      });
-    });
-
-    // Staked event
-    token.on('Staked', async (userAddress, amount) => {
-      if (userAddress.toLowerCase() === user.address?.toLowerCase()) {
-        const stakedAmount = await token.getStakedAmount(userAddress);
-        dispatch(setTokenData({ stakedAmount: formatEther(stakedAmount) }));
-      }
-    });
-
-    // Unstaked event
-    token.on('Unstaked', async (userAddress, amount) => {
-      if (userAddress.toLowerCase() === user.address?.toLowerCase()) {
-        const stakedAmount = await token.getStakedAmount(userAddress);
-        const balance = await token.balanceOf(userAddress);
-        dispatch(setTokenData({
-          stakedAmount: formatEther(stakedAmount),
-          balance: formatEther(balance),
-        }));
-      }
-    });
-
-    // RewardsClaimed event
-    token.on('RewardsClaimed', async (userAddress, amount) => {
-      if (userAddress.toLowerCase() === user.address?.toLowerCase()) {
-        const balance = await token.balanceOf(userAddress);
-        const pendingRewards = await token.getPendingRewards(userAddress);
-        dispatch(setTokenData({
-          balance: formatEther(balance),
-          pendingRewards: formatEther(pendingRewards),
-        }));
-      }
-    });
-
-    return () => {
-      content.removeAllListeners();
-      token.removeAllListeners();
-    };
-  }, [dispatch, user.address]);
+  const refreshAllPosts = useCallback(async () => {
+    if (!contract) return;
+    await fetchAllPosts(contract);
+  }, [contract, fetchAllPosts]);
 
   const connectWallet = useCallback(async () => {
     if (!window.ethereum) {
@@ -164,7 +165,7 @@ export const useWeb3 = () => {
     try {
       const networkOk = await checkNetwork();
       if (!networkOk) {
-        dispatch(setUserError('Please switch to Sepolia network'));
+        dispatch(setUserError('Please switch to the correct network'));
         dispatch(setIsConnecting(false));
         return false;
       }
@@ -176,9 +177,10 @@ export const useWeb3 = () => {
       setProvider(browserProvider);
       setSigner(signerInstance);
 
-      const { token, content } = await setupContracts(signerInstance);
-      await fetchUserData(address, content, token);
-      setupEventListeners(content, token);
+  const contractInstance = new Contract(CONTRACTS.VIBEFEED, CONTRACT_ABI, signerInstance);
+  setContract(contractInstance);  
+
+  await fetchUserData(address, contractInstance);
 
       dispatch(setIsConnecting(false));
       return true;
@@ -188,23 +190,23 @@ export const useWeb3 = () => {
       dispatch(setIsConnecting(false));
       return false;
     }
-  }, [checkNetwork, setupContracts, fetchUserData, setupEventListeners, dispatch]);
+  }, [checkNetwork, fetchUserData, dispatch]);
 
   const disconnectWallet = useCallback(() => {
-    if (tokenContract) tokenContract.removeAllListeners();
-    if (contentContract) contentContract.removeAllListeners();
-    
     setProvider(null);
     setSigner(null);
-    setTokenContract(null);
-    setContentContract(null);
-    
+    setContract(null);
+
     dispatch(resetUser());
     dispatch(resetToken());
-  }, [tokenContract, contentContract, dispatch]);
+  }, [dispatch]);
 
-  // Listen for account changes
   useEffect(() => {
+    // Auto-connect if MetaMask is already connected
+    if (window.ethereum && window.ethereum.selectedAddress) {
+      connectWallet();
+    }
+
     if (window.ethereum) {
       window.ethereum.on('accountsChanged', (accounts) => {
         if (accounts.length === 0) {
@@ -230,10 +232,11 @@ export const useWeb3 = () => {
   return {
     provider,
     signer,
-    tokenContract,
-    contentContract,
+    contract,
     connectWallet,
     disconnectWallet,
+    refreshUserData,
+    refreshAllPosts,
     isConnected: !!user.address,
   };
 };

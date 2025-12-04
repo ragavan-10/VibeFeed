@@ -17,10 +17,11 @@ export const formatNumber = (num, decimals = 2) => {
   return n.toFixed(decimals);
 };
 
-export const formatTokenAmount = (amount, decimals = 4) => {
+export const formatTokenAmount = (amount, decimals = 18) => {
   if (!amount) return '0';
   const n = parseFloat(amount);
   if (isNaN(n)) return '0';
+  console.log(amount);
   
   if (n === 0) return '0';
   if (n < 0.0001) return '<0.0001';

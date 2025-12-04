@@ -5,7 +5,7 @@ import { Wallet, TrendingUp, Zap, Shield, Users, Loader2, ArrowRight, Sparkles }
 import { setUserData, setIsConnecting } from '../store/userSlice';
 import { setTokenData } from '../store/tokenSlice';
 import { setPosts, setTrendingIds } from '../store/postsSlice';
-import { mockPosts, mockUserData, DEMO_MODE } from '../utils/mockData';
+import { useWallet } from '../hooks/WalletContext';
 import WalletButton from '../components/WalletButton';
 import heroBg from '../assets/hero-bg.png';
 
@@ -17,6 +17,7 @@ const Landing = () => {
   const [handle, setHandle] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState('');
+  const { connectWallet, contract, signerContract } = useWallet();
 
   useEffect(() => {
     if (isRegistered) {
@@ -24,43 +25,6 @@ const Landing = () => {
     }
   }, [isRegistered, navigate]);
 
-  const connectWallet = async () => {
-    dispatch(setIsConnecting(true));
-
-    if (DEMO_MODE) {
-      // Demo mode - simulate wallet connection
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      const demoAddress = '0x' + Array.from({ length: 40 }, () => 
-        Math.floor(Math.random() * 16).toString(16)
-      ).join('');
-
-      dispatch(setUserData({
-        address: demoAddress,
-        isRegistered: false,
-      }));
-      dispatch(setIsConnecting(false));
-      return;
-    }
-
-    // Real wallet connection
-    if (!window.ethereum) {
-      setError('Please install MetaMask');
-      dispatch(setIsConnecting(false));
-      return;
-    }
-
-    try {
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      dispatch(setUserData({
-        address: accounts[0],
-        isRegistered: false, // Will check registration status
-      }));
-    } catch (err) {
-      setError(err.message);
-    }
-    dispatch(setIsConnecting(false));
-  };
 
   const disconnectWallet = () => {
     dispatch(setUserData({
@@ -80,46 +44,24 @@ const Landing = () => {
       setError('Please enter a handle');
       return;
     }
-
     if (handle.length < 3 || handle.length > 20) {
       setError('Handle must be 3-20 characters');
       return;
     }
-
     if (!/^[a-zA-Z0-9_]+$/.test(handle)) {
       setError('Handle can only contain letters, numbers, and underscores');
       return;
     }
-
     setIsRegistering(true);
-    
-    if (DEMO_MODE) {
-      // Demo mode - simulate registration
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      dispatch(setUserData({
-        handle,
-        isRegistered: true,
-        myPostIds: [],
-        myLikedPostIds: [2, 5],
-      }));
-
-      dispatch(setTokenData(mockUserData));
-      dispatch(setPosts(mockPosts));
-      dispatch(setTrendingIds([5, 3, 1]));
-      
+    try {
+  if (!signerContract) throw new Error('Connect wallet first');
+  const tx = await signerContract.registerHandle(handle);
+      await tx.wait();
       navigate('/feed');
-    } else {
-      // Real contract registration would go here
-      try {
-        // await registerUser(handle);
-        navigate('/feed');
-      } catch (err) {
-        console.error('Registration error:', err);
-        setError(err.reason || 'Registration failed. Try a different handle.');
-      }
+    } catch (err) {
+      console.error('Registration error:', err);
+      setError(err.reason || err.message || 'Registration failed. Try a different handle.');
     }
-    
     setIsRegistering(false);
   };
 
@@ -168,12 +110,7 @@ const Landing = () => {
           <span className="text-2xl font-display font-bold gradient-text">Vibe</span>
         </div>
         
-        {DEMO_MODE && (
-          <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-warning/20 text-warning text-xs font-medium">
-            <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
-            Demo Mode
-          </span>
-        )}
+        {/* Demo badge removed: always live contract mode */}
         
         <WalletButton onConnect={connectWallet} onDisconnect={disconnectWallet} />
       </header>

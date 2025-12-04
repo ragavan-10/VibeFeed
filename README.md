@@ -1,73 +1,70 @@
-# Welcome to your Lovable project
+# VibeFeed Frontend + Contract Integration
 
-## Project info
+This repo includes a React (Vite) frontend in `VibeFeed/` and the Solidity contract `contracts/VibeFeed.sol`.
 
-**URL**: https://lovable.dev/projects/5813842b-33a5-4034-90a0-ca9844459979
+## Use a Remix-deployed contract in the frontend
 
-## How can I edit this code?
+1. Find your Remix deployment address and network.
+	- In Remix, check the address in the Deployed Contracts panel.
+	- If you used Injected Provider with MetaMask, the network is whatever MetaMask was on (e.g., Sepolia).
+2. Update `VibeFeed/src/contracts/addresses.js`:
+	- Set `CONTRACTS.VIBEFEED` to your deployed address.
+	- Set `CHAIN_ID`, `CHAIN_NAME`, and `RPC_URL` to match the network.
+3. In MetaMask, switch to the same network and connect the wallet in the app.
 
-There are several ways of editing your application.
+## Local testing on Anvil (Foundry)
 
-**Use Lovable**
+Prereqs: Install Foundry (`foundryup`) and Bun/NPM for the frontend.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/5813842b-33a5-4034-90a0-ca9844459979) and start prompting.
+1. Install dependencies for contracts (OpenZeppelin):
+	```bash
+	forge install openzeppelin/openzeppelin-contracts
+	```
+	Then build once to verify:
+	```bash
+	forge build
+	```
 
-Changes made via Lovable will be committed automatically to this repo.
+2. Start Anvil:
+	```bash
+	anvil
+	```
+3. Deploy:
+	- Create `.env` in the repo root: `PRIVATE_KEY=<anvil_private_key>`.
+	- Run:
+	```bash
+	forge script script/Deploy.s.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast
+	```
+	Copy the printed address.
+4. Configure the frontend:
+	- In `VibeFeed/src/contracts/addresses.js` set `CONTRACTS.VIBEFEED` to the address.
+	- Set `CHAIN_ID=31337` and `NETWORK_CONFIG.rpcUrls=["http://127.0.0.1:8545"]`.
+5. Run the frontend:
+	```bash
+	cd VibeFeed
+	bun install
+	bun run dev
+	```
+	In MetaMask, add a custom network for `http://127.0.0.1:8545` and connect.
 
-**Use your preferred IDE**
+## Deploy to Sepolia via Remix/MetaMask
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. In Remix, select `Injected Provider - MetaMask`, switch MetaMask to Sepolia, and deploy `VibeFeed.sol`.
+2. Copy the address into `CONTRACTS.VIBEFEED` and set `CHAIN_ID=11155111`.
+3. Make sure your account has Sepolia ETH.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## ABI & functions
 
-Follow these steps:
+The frontend uses the combined ABI in `VibeFeed/src/contracts/abis.js` that matches `VibeFeed.sol`.
+Key functions:
+- registerHandle(string)
+- createPost(string cid, string handle)
+- like(uint256 postId)
+- stake(uint256 amount), unstake()
+- claimRewards()
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Troubleshooting
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/5813842b-33a5-4034-90a0-ca9844459979) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- If the app prompts to switch network, approve the switch.
+- If transactions fail, ensure you have test ETH on the target network.
+- If posts/likes don't update, check `CONTRACTS.VIBEFEED` and that MetaMask is on the same network.

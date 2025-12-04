@@ -7,7 +7,7 @@ import { shortenAddress, formatNumber } from '../utils/format';
 import PostCard from '../components/PostCard';
 import EmptyState from '../components/EmptyState';
 import { LoadingCard } from '../components/LoadingSpinner';
-import { DEMO_MODE } from '../utils/mockData';
+import { useWallet } from '../hooks/WalletContext.jsx';
 
 const Profile = () => {
   const dispatch = useDispatch();
@@ -25,6 +25,38 @@ const Profile = () => {
   const myPosts = myPostIds.map(id => byId[id]).filter(Boolean);
   const likedPosts = myLikedPostIds.map(id => byId[id]).filter(Boolean);
 
+
+  console.log(byId, myPostIds, myPosts);
+  
+  const { signerContract, contract } = useWallet();
+  const refreshUserData = async () => {
+    // Fallback: if needed, re-fetch handle and stats from contract
+    try {
+      if (!contract || !address) return;
+      const [handleOnChain, postIds, likedIds, vp] = await Promise.all([
+        contract.getHandle(address),
+        contract.getMyPostIds(address),
+        contract.getMyLikedPostIds(address),
+        contract.votingPowerOf(address),
+      ]);
+      dispatch(setUserData({
+        address,
+        handle: handleOnChain,
+        myPostIds: postIds.map((id) => Number(id)),
+        myLikedPostIds: likedIds.map((id) => Number(id)),
+      }));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // useEffect(() => {
+  //   // If post count updates but posts are missing, refresh user data
+  //   if ((myPostIds.length > 0 && myPosts.length === 0) && contract) {
+  //     refreshUserData();
+  //   }
+  // }, [myPostIds, myPosts, contract, refreshUserData]);
+
   const copyAddress = () => {
     navigator.clipboard.writeText(address);
     setCopied(true);
@@ -37,17 +69,15 @@ const Profile = () => {
       setIsEditingHandle(false);
       return;
     }
-
     setIsUpdating(true);
-    
-    if (DEMO_MODE) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      dispatch(setUserData({ handle: newHandle }));
-    } else {
-      // Real contract call would go here
-      // await updateHandle(newHandle);
+    try {
+  if (!signerContract) throw new Error('Connect wallet first');
+  const tx = await signerContract.updateHandle(newHandle);
+      await tx.wait();
+      await refreshUserData();
+    } catch (err) {
+      // Optionally show error
     }
-    
     setIsUpdating(false);
     setIsEditingHandle(false);
   };

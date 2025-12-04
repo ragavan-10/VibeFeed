@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { addNewPost } from '../store/postsSlice';
 import { addMyPostId } from '../store/userSlice';
 import { uploadToIPFS } from '../utils/ipfs';
-import { DEMO_MODE } from '../utils/mockData';
+import useWeb3 from '../hooks/useWeb3';
 
 const CreatePost = () => {
   const navigate = useNavigate();
@@ -21,6 +21,9 @@ const CreatePost = () => {
   const [isPosting, setIsPosting] = useState(false);
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
+
+  const { contract } = useWeb3();
+
   
   const fileInputRef = useRef(null);
 
@@ -78,37 +81,39 @@ const CreatePost = () => {
       return;
     }
 
+    // Minimum stake check (show warning and prevent post)
+    if (!isStakedEnough) {
+      setError('You must stake at least 1,000 VIBE tokens to create a post.');
+      return;
+    }
+
     setIsUploading(true);
     try {
       // Upload to IPFS
       const cid = await uploadToIPFS(image);
-      
+
       setIsUploading(false);
       setIsPosting(true);
 
-      if (DEMO_MODE) {
-        // Demo mode - create post locally
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        
-        const newPostId = Math.max(...allIds, 0) + 1;
-        
-        const newPost = {
-          id: newPostId,
-          creator: address,
-          handle,
-          cid,
-          points: 0,
-          createdAt: Date.now(),
-          isLikedByMe: false,
-        };
-
-        dispatch(addNewPost(newPost));
-        dispatch(addMyPostId(newPostId));
-        
-        navigate(`/post/${newPostId}`);
+      if (!contract) throw new Error('Connect wallet first');
+      setIsPosting(true);
+      const tx = await contract.createPost(cid);
+      const receipt = await tx.wait();
+      // Find PostCreated event and get postId
+      let postId = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = contract.interface.parseLog(log);
+          if (parsed.name === 'PostCreated') {
+            postId = Number(parsed.args.postId);
+            break;
+          }
+        } catch {}
+      }
+      if (postId) {
+        dispatch(addMyPostId(postId));
+        navigate(`/post/${postId}`);
       } else {
-        // Real contract post creation would go here
-        // const postId = await createPost(cid);
         navigate('/feed');
       }
     } catch (err) {

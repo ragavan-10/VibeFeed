@@ -2,17 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Search, TrendingUp, Clock, Award, Plus, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { likePost as likePostAction, addMyLikedPostId } from '../store/postsSlice';
+import { likePost as likePostAction } from '../store/postsSlice';
 import { addMyLikedPostId as addUserLikedPostId } from '../store/userSlice';
 import PostCard from '../components/PostCard';
 import EmptyState from '../components/EmptyState';
 import { LoadingCard } from '../components/LoadingSpinner';
-import { DEMO_MODE } from '../utils/mockData';
+import { useWallet } from '../hooks/WalletContext.jsx';
+
+
 
 const TABS = [
-  { id: 'new', label: 'New', icon: Clock },
-  { id: 'trending', label: 'Trending', icon: TrendingUp },
   { id: 'top', label: 'Top', icon: Award },
+  { id: 'trending', label: 'Trending', icon: TrendingUp },
+  { id: 'new', label: 'New', icon: Clock },
 ];
 
 const Feed = () => {
@@ -20,7 +22,7 @@ const Feed = () => {
   const { byId, allIds, trendingIds, isLoading, hasMore } = useSelector((state) => state.posts);
   const { myLikedPostIds } = useSelector((state) => state.user);
   
-  const [activeTab, setActiveTab] = useState('new');
+  const [activeTab, setActiveTab] = useState('top');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const loadingRef = useRef(null);
@@ -59,25 +61,18 @@ const Feed = () => {
 
   const displayPosts = getDisplayPosts();
 
+  const { signerContract, contract } = useWallet();
   const handleLike = async (postId) => {
-    if (DEMO_MODE) {
-      // Demo mode like
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      const post = byId[postId];
-      if (post) {
-        dispatch(likePostAction({
-          id: postId,
-          points: post.points + Math.floor(Math.random() * 10) + 1,
-        }));
-        dispatch(addUserLikedPostId(postId));
-      }
-      return;
-    }
-    
-    // Real contract like would go here
     try {
-      // await likePost(postId);
+      if (!signerContract) throw new Error('Connect wallet first');
+      const tx = await signerContract.like(postId);
+      await tx.wait();
+  // Optimistically update UI by refetching points via getPost
+  const [,, , points] = await contract.getPost(postId);
+  // Format points to human-readable units (divide by 1e18)
+  const formattedPoints = Number(points) / 1e18;
+  dispatch(likePostAction({ id: postId, points: formattedPoints }));
+      dispatch(addUserLikedPostId(postId));
     } catch (error) {
       console.error('Like error:', error);
     }
