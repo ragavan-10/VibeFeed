@@ -3,7 +3,7 @@
 
 // Single VibeFeed contract address (same for TOKEN and CONTENT ABIs)
 export const CONTRACTS = {
-  VIBEFEED: '0x5FbDB2315678afecb367f032d93F642f64180aa3', // <-- paste your Remix deployed address here
+  VIBEFEED: '0x477922aFBAC2A4184EB6452d7718cC4090CbC35A', // <-- paste your Remix deployed address here
 };
 
 // Set these to the network you deployed to in Remix.
@@ -13,20 +13,20 @@ export const CHAIN_NAME = 'Sepolia';
 export const RPC_URL = 'https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161';
 
 export const NETWORK_CONFIG = {
+  // local: {
+  //   chainId: '0x7a69', // 31337 in hex
+  //   chainName: 'Local Anvil',
+  //   rpcUrl: 'http://127.0.0.1:8545',
+  //   nativeCurrency: {
+  //     name: 'Vibe',
+  //     symbol: 'VIBE',
+  //     decimals: 18
+  //   }
+  // },
   local: {
-    chainId: '0x7a69', // 31337 in hex
-    chainName: 'Local Anvil',
-    rpcUrl: 'http://127.0.0.1:8545',
-    nativeCurrency: {
-      name: 'Vibe',
-      symbol: 'VIBE',
-      decimals: 18
-    }
-  },
-  sepolia: {
     chainId: '0xaa36a7', // Sepolia chain ID
     chainName: 'Sepolia',
-    rpcUrl: 'https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID', // Replace with your Infura URL
+    rpcUrl: 'https://sepolia.infura.io/v3/5121a47151a9435c80285cec84c862ff', // Replace with your Infura URL
     nativeCurrency: {
       name: 'SepoliaETH',
       symbol: 'ETH',
