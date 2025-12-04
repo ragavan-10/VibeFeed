@@ -13,18 +13,48 @@ const Landing = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { address, isRegistered, isConnecting } = useSelector((state) => state.user);
-  
   const [handle, setHandle] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState('');
-  const { connectWallet, contract, signerContract } = useWallet();
+  const {
+    connectWallet,
+    contract,
+    signerContract,
+    address: walletAddress,
+    isConnecting: walletConnecting,
+    isRegistered: walletIsRegistered,
+    handle: walletHandle,
+    fetchUser,
+  } = useWallet();
 
+  // Effect 1: When wallet connects, fetch user once and set address in Redux
   useEffect(() => {
-    if (isRegistered) {
+    if (!walletAddress) return;
+    // Set address only when it changes
+    if (address !== walletAddress) {
+      dispatch(setUserData({ address: walletAddress }));
+    }
+  }, [walletAddress, address, dispatch]);
+
+  // Effect 2: When wallet context reports registration/handle, sync to Redux and navigate
+  useEffect(() => {
+    if (!walletAddress) return;
+    // Sync wallet context user data to Redux when available
+    if (walletIsRegistered !== undefined && walletHandle !== undefined) {
+      dispatch(setUserData({
+        address: walletAddress,
+        handle: walletHandle || null,
+        isRegistered: !!walletIsRegistered,
+      }));
+    }
+  }, [walletAddress, walletIsRegistered, walletHandle, dispatch]);
+
+  // Effect 3: Navigate to feed if registered
+  useEffect(() => {
+    if (walletIsRegistered || isRegistered) {
       navigate('/feed');
     }
-  }, [isRegistered, navigate]);
-
+  }, [walletIsRegistered, isRegistered, navigate]);
 
   const disconnectWallet = () => {
     dispatch(setUserData({
@@ -54,9 +84,18 @@ const Landing = () => {
     }
     setIsRegistering(true);
     try {
-  if (!signerContract) throw new Error('Connect wallet first');
-  const tx = await signerContract.registerHandle(handle);
+      if (!signerContract) throw new Error('Connect wallet first');
+      const tx = await signerContract.registerHandle(handle);
       await tx.wait();
+      console.log("registered");
+      
+      // Refetch user from chain to update WalletContext
+      if (contract) {
+        await fetchUser(walletAddress, contract);
+      }
+      
+      // Update Redux state to mark as registered
+      dispatch(setUserData({ address: walletAddress, handle, isRegistered: true }));
       navigate('/feed');
     } catch (err) {
       console.error('Registration error:', err);
@@ -133,14 +172,16 @@ const Landing = () => {
             and early supporters share in the success of trending content.
           </p>
 
-          {!address ? (
+          {!walletAddress ? (
             <button
-              onClick={connectWallet}
-              disabled={isConnecting}
+              onClick={async () => {
+                await connectWallet();
+              }}
+              disabled={walletConnecting}
               className="btn-primary inline-flex items-center gap-3 text-lg px-8 py-4 text-primary-foreground animate-scale-in"
               style={{ animationDelay: '200ms' }}
             >
-              {isConnecting ? (
+              {walletConnecting ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Connecting...

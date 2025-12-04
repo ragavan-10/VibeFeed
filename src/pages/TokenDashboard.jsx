@@ -176,7 +176,7 @@ const TokenDashboard = () => {
       try {
         const owner = await contract.owner();
         setIsOwner(owner.toLowerCase() === address.toLowerCase());
-        console.log(owner, address);
+        console.log({owner, address});
         
       } catch {}
     };

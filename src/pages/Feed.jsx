@@ -20,12 +20,33 @@ const TABS = [
 const Feed = () => {
   const dispatch = useDispatch();
   const { byId, allIds, trendingIds, isLoading, hasMore } = useSelector((state) => state.posts);
-  const { myLikedPostIds } = useSelector((state) => state.user);
+  const { myLikedPostIds, address } = useSelector((state) => state.user);
   
   const [activeTab, setActiveTab] = useState('top');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const loadingRef = useRef(null);
+
+  const { signerContract, contract, address: walletAddress, fetchUserData, shouldFetchFullData, setShouldFetchFullData } = useWallet();
+
+  // Load user data on mount and when connection changes
+  useEffect(() => {
+    if (walletAddress && contract && dispatch) {
+      fetchUserData(walletAddress, contract, dispatch);
+      // Reset flag if it was set
+      if (shouldFetchFullData) {
+        setShouldFetchFullData(false);
+      }
+    }
+  }, [walletAddress, contract, dispatch]); // Fetch when wallet/contract available
+
+  // Also trigger fetch when shouldFetchFullData flag is explicitly set
+  useEffect(() => {
+    if (walletAddress && contract && dispatch && shouldFetchFullData) {
+      fetchUserData(walletAddress, contract, dispatch);
+      setShouldFetchFullData(false);
+    }
+  }, [shouldFetchFullData]); // Only when flag changes
 
   // Get posts based on tab
   const getDisplayPosts = useCallback(() => {
@@ -61,7 +82,6 @@ const Feed = () => {
 
   const displayPosts = getDisplayPosts();
 
-  const { signerContract, contract } = useWallet();
   const handleLike = async (postId) => {
     try {
       if (!signerContract) throw new Error('Connect wallet first');

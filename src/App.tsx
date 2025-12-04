@@ -2,7 +2,6 @@ import { Provider } from 'react-redux';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import store from './store';
-import { Web3Provider } from './hooks/Web3Context.jsx';
 import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Feed from './pages/Feed';
@@ -76,11 +75,9 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <Provider store={store}>
-      <Web3Provider>
         <BrowserRouter>
           <AppRoutes />
         </BrowserRouter>
-      </Web3Provider>
     </Provider>
   );
 };
